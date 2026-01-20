@@ -88,6 +88,41 @@ class Resolver
         return $reflector->newInstanceArgs($dependencies);
     }
 
+    /**
+     * Introspection method to get raw dependency info without instantiation.
+     * @return array<int, array{name: string, type: string|null, optional: bool, builtin: bool}>
+     */
+    public function getDependencies(string $class): array
+    {
+         try {
+            $reflector = $this->getReflector($class);
+         } catch (ReflectionException $e) {
+             return [];
+         }
+
+         $constructor = $reflector->getConstructor();
+         if ($constructor === null) {
+             return [];
+         }
+
+         $deps = [];
+         foreach ($constructor->getParameters() as $param) {
+             $type = $param->getType();
+             $typeName = null;
+             if ($type instanceof ReflectionNamedType) {
+                 $typeName = $type->getName();
+             }
+
+             $deps[] = [
+                 'name' => $param->getName(),
+                 'type' => $typeName,
+                 'optional' => $param->isOptional(),
+                 'builtin' => $type && $type->isBuiltin(),
+             ];
+         }
+         return $deps;
+    }
+
     private function resolveParameter(string $class, ReflectionParameter $parameter): mixed
     {
         $paramName = $parameter->getName();

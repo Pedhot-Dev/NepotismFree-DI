@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace PedhotDev\NepotismFree\Core;
 
 use PedhotDev\NepotismFree\Contract\ContainerInterface;
+use PedhotDev\NepotismFree\Contract\IntrospectableContainerInterface;
 use PedhotDev\NepotismFree\Exception\NotFoundException;
+use PedhotDev\NepotismFree\Introspection\DependencyGraph;
+use PedhotDev\NepotismFree\Introspection\ServiceNode;
 
 /**
  * The immutable Dependency Injection Container.
  */
-class Container implements ContainerInterface
+class Container implements ContainerInterface, IntrospectableContainerInterface
 {
     private Resolver $resolver;
     
@@ -77,5 +80,63 @@ class Container implements ContainerInterface
         }
 
         return false;
+    }
+
+    // --- Introspection API ---
+
+    public function getDefinitions(): array
+    {
+        return $this->registry->getBindings();
+    }
+
+    public function getResolvedIds(): array
+    {
+        return array_keys($this->instances);
+    }
+
+    public function getDependencyGraph(): DependencyGraph
+    {
+        $nodes = [];
+        $ids = $this->registry->getServiceIds();
+
+        foreach ($ids as $id) {
+            // Determine type
+            $isSingleton = $this->registry->isSingleton($id);
+            $type = $isSingleton ? 'singleton' : 'prototype';
+            
+            // Check implementation
+            $binding = $this->registry->getBinding($id);
+            if ($binding instanceof \Closure) {
+                // Factories are opaque to static analysis mostly
+                $node = new ServiceNode(
+                    id: $id,
+                    type: 'factory', 
+                    isResolved: isset($this->instances[$id]),
+                    concrete: 'closure'
+                );
+            } else {
+                $concrete = is_string($binding) ? $binding : $id;
+                
+                $node = new ServiceNode(
+                    id: $id,
+                    type: $type,
+                    isResolved: isset($this->instances[$id]),
+                    concrete: $concrete
+                );
+
+                // Calculate dependencies if it's a class
+                if (class_exists($concrete)) {
+                    $deps = $this->resolver->getDependencies($concrete);
+                    foreach ($deps as $dep) {
+                        if (isset($dep['type'])) {
+                             $node->addDependency($dep['type']);
+                        }
+                    }
+                }
+            }
+            $nodes[$id] = $node;
+        }
+
+        return new DependencyGraph($nodes);
     }
 }

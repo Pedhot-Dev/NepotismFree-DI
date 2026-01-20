@@ -109,4 +109,20 @@ class Registry
     {
         return array_keys($this->bindings);
     }
+
+    /**
+     * @return array<string, string|Closure>
+     */
+    public function getBindings(): array
+    {
+        return $this->bindings;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    public function getSingletons(): array
+    {
+        return $this->singletons;
+    }
 }
