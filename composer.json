@@ -1,6 +1,5 @@
 {
     "name": "pedhot-dev/nepotismfree-di",
-    "version": "1.0.0",
     "description": "A high-performance, opinionated, strict Dependency Injection Container for PHP 8.1+. No magic, no hidden wiring.",
     "type": "library",
     "license": "MIT",
