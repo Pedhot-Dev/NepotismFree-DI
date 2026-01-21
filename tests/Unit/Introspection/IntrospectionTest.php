@@ -19,7 +19,7 @@ class IntrospectionTest extends TestCase
     protected function setUp(): void
     {
         $this->registry = new Registry();
-        $this->container = new Container($this->registry, new ModuleAccessPolicy([]));
+        $this->container = new Container($this->registry, new ModuleAccessPolicy($this->registry));
     }
 
     public function test_it_implements_introspectable_interface(): void
