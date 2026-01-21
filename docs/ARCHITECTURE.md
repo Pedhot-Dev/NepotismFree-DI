@@ -21,6 +21,14 @@ The architecture separates graph construction from service resolution. This sepa
 - **No Service Locator**: The container is NOT a service locator and should never be injected into managed services.
 - **No Runtime Mutation**: Once built, the container is immutable. New bindings or configuration changes are forbidden at runtime.
 
+## Scope Model: Lifecycle Management
+To support long-running processes (e.g., game servers, workers), the container implements a multi-tier scope model:
+1. **PROCESS**: Global singletons, shared for the entire lifetime of the process.
+2. **TICK**: Scoped services, shared within a logical execution cycle (managed by `ScopeManager`).
+3. **PROTOTYPE**: Transient services, a new instance is created on every request.
+
+The system enforces **Scope Safety**: a service with a wider scope cannot depend on a service with a narrower scope (e.g., a `PROCESS` singleton cannot depend on a `TICK` service), preventing memory leaks and stale instance bugs.
+
 ## Lifecycle: Build Phase vs. Runtime Phase
 
 The system distinguishes between two distinct phases of operation:
@@ -36,4 +44,8 @@ The system distinguishes between two distinct phases of operation:
 *   **Outcome**: Reliable, high-performance service delivery.
 
 ## The Compiler
-The `Compiler` is an optional build-time tool. It takes the validated `Registry` and generates a static PHP class. This generated class replaces the dynamic `Resolver` and `Inspector` in production, providing the highest possible performance without changing the container's behavior or strictness.
+The `Compiler` is a build-time tool that generates a semantic-preserving PHP container. Unlike simplistic compilers, this one:
+- **Eliminates Reflection**: Generates exact `new` calls for all services.
+- **Bakes Context**: Pre-resolves contextual and argument bindings at compile time.
+- **Preserves DI Semantics**: Handles recursion, scopes, and group resolution (tags) identically to the runtime container.
+- **Supports Factories**: Safely integrates runtime factory closures via constructor injection.

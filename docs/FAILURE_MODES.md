@@ -22,9 +22,14 @@ This container is designed to "fail loud and fail fast". We prefer an immediate,
 ### 4. Module Boundary Violation
 *   **Condition**: Service A (in Module 1) attempts to resolve Service B (in Module 2), but Service B has not been explicitly marked as "exposed" in its module definition.
 *   **Exception**: `PedhotDev\NepotismFree\Exception\ModuleBoundaryException`
-*   **Rationale**: Enforces encapsulation and "Internal" service privacy. This prevents leaked implementation details from becoming public APIs.
+*   **Rationale**: Enforces encapsulation and "Internal" service privacy. This prevents leaked implementation details from becoming public APIs. Precise error messages now specify both the internal service and the violating consumer module.
 
-### 5. Runtime Modification Attempt
+### 5. Unsafe Scope Injection
+*   **Condition**: A service with a wider lifecycle (e.g., `PROCESS`) depends on a service with a narrower lifecycle (e.g., `TICK`).
+*   **Exception**: `PedhotDev\NepotismFree\Exception\DefinitionException`
+*   **Rationale**: Prevents stale dependency issues and memory leaks where a long-lived object holds onto a reference that should have been disposed of at the end of a execution cycle.
+
+### 6. Runtime Modification Attempt
 *   **Condition**: Attempting to add a binding or configure a module after the container has been built (`$builder->build()`).
 *   **Exception**: `PedhotDev\NepotismFree\Exception\DefinitionException`
 *   **Rationale**: Ensures container immutability. Once the runtime phase begins, the dependency graph is locked.
