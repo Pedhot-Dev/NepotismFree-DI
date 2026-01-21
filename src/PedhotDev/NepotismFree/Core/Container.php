@@ -7,6 +7,8 @@ namespace PedhotDev\NepotismFree\Core;
 use PedhotDev\NepotismFree\Contract\ContainerInterface;
 use PedhotDev\NepotismFree\Contract\IntrospectableContainerInterface;
 use PedhotDev\NepotismFree\Exception\NotFoundException;
+use PedhotDev\NepotismFree\Contract\Scope;
+use PedhotDev\NepotismFree\Core\ResolutionContext;
 use PedhotDev\NepotismFree\Introspection\DependencyGraph;
 use PedhotDev\NepotismFree\Introspection\ServiceNode;
 
@@ -22,20 +24,26 @@ class Container implements ContainerInterface, IntrospectableContainerInterface
 
     public function __construct(
         private Registry $registry,
-        private ModuleAccessPolicy $accessPolicy
+        private ModuleAccessPolicy $accessPolicy,
+        private Scope $scope = Scope::PROCESS,
+        private ?ResolutionContext $context = null
     ) {
-        // Container constructs its own resolver to ensure it passes itself correctly
-        $this->resolver = new Resolver($registry, $this);
+        $this->context ??= new ResolutionContext();
+        $this->resolver = new Resolver($registry, $this, $this->context);
     }
 
     public function get(string $id, bool $internal = false): mixed
     {
-        // 0. Module Boundary Check (V2 Feature)
-        if (!$internal && !$this->accessPolicy->canAccess($id)) {
-            throw \PedhotDev\NepotismFree\Exception\ModuleBoundaryException::internalServiceAccess($id, 'UnknownModule');
+        // 0. Module Boundary Check
+        $consumerId = $this->resolver->getCurrentConsumer();
+        $consumerModule = $consumerId ? $this->registry->getModule($consumerId) : null;
+
+        if (!$internal && !$this->accessPolicy->canAccess($id, $consumerModule)) {
+            $serviceModule = $this->registry->getModule($id) ?? 'UnknownModule';
+            throw \PedhotDev\NepotismFree\Exception\ModuleBoundaryException::internalServiceAccess($id, $serviceModule, $consumerModule);
         }
 
-        // 1. Check if we have an active singleton instance
+        // 1. Check if we have an active instance in THIS scope
         if (isset($this->instances[$id])) {
             return $this->instances[$id];
         }
@@ -43,12 +51,20 @@ class Container implements ContainerInterface, IntrospectableContainerInterface
         // 2. Resolve the dependency
         $object = $this->resolver->resolve($id);
 
-        // 3. Cache if singleton
-        if ($this->registry->isSingleton($id)) {
+        // 3. Cache if it belongs to THIS scope
+        if ($this->registry->getScope($id) === $this->scope) {
             $this->instances[$id] = $object;
         }
 
         return $object;
+    }
+
+    /**
+     * Creates a child container for a specific scope.
+     */
+    public function createScope(Scope $scope): ScopedContainer
+    {
+        return new ScopedContainer($this, $this->registry, $this->accessPolicy, $scope, $this->context);
     }
 
     public function getTagged(string $tag): iterable
@@ -56,14 +72,16 @@ class Container implements ContainerInterface, IntrospectableContainerInterface
         $serviceIds = $this->registry->getTagged($tag);
 
         if (empty($serviceIds)) {
-            // Requirement 4: "Empty tag resolution must be explicit (error or empty, no silent behavior)"
-            // Let's decide: If tag exists but no services, return empty array?
-            // "No silent success" -> if tag doesn't exist at all, throw exception?
             return [];
         }
 
+        $consumerId = $this->resolver->getCurrentConsumer();
+        $consumerModule = $consumerId ? $this->registry->getModule($consumerId) : null;
+
         foreach ($serviceIds as $id) {
-            yield $this->get($id);
+            if ($this->accessPolicy->canAccess($id, $consumerModule)) {
+                yield $this->get($id, true);
+            }
         }
     }
 

@@ -9,12 +9,12 @@ namespace PedhotDev\NepotismFree\Exception;
  */
 class ModuleBoundaryException extends ContainerException
 {
-    public static function internalServiceAccess(string $id, string $moduleClass): self
+    public static function internalServiceAccess(string $id, string $serviceModule, ?string $consumerModule = null): self
     {
-        return new self(sprintf(
-            "Service '%s' is internal to module '%s' and cannot be accessed from the outside.",
-            $id,
-            $moduleClass
-        ));
+        $message = sprintf("Service '%s' is internal to module '%s' and cannot be accessed from the outside.", $id, $serviceModule);
+        if ($consumerModule !== null) {
+            $message = sprintf("Service '%s' (internal to module '%s') cannot be accessed by module '%s'.", $id, $serviceModule, $consumerModule);
+        }
+        return new self($message);
     }
 }

@@ -51,4 +51,13 @@ class DefinitionException extends ContainerException
             "The builder is immutable. Mutation after build() is forbidden. All bindings must be defined before build()."
         );
     }
+
+    public static function unsafeScopeInjection(string $consumer, string $dependency): self
+    {
+        return new self(sprintf(
+            "Unsafe scope injection: Service '%s' (PROCESS scope) cannot depend on service '%s' (TICK scope). This would lead to stale instances and memory leaks in long-running processes.",
+            $consumer,
+            $dependency
+        ));
+    }
 }

@@ -19,8 +19,8 @@ class Registry
     /** @var array<string, array<string, mixed>> */
     private array $arguments = [];
 
-    /** @var array<string, bool> True = Singleton, False = Prototype */
-    private array $singletons = [];
+    /** @var array<string, \PedhotDev\NepotismFree\Contract\Scope> */
+    private array $scopes = [];
 
     /** @var array<string, array<string, string|Closure>> consumer => [interface => implementation] */
     private array $contextualBindings = [];
@@ -31,9 +31,15 @@ class Registry
     /** @var array<string, object> class => instance */
     private array $parameterObjects = [];
 
-    public function bind(string $id, string|Closure $implementation): void
+    /** @var array<string, string> serviceId => moduleName */
+    private array $bindingModules = [];
+
+    public function bind(string $id, string|Closure $implementation, ?string $module = null): void
     {
         $this->bindings[$id] = $implementation;
+        if ($module) {
+            $this->bindingModules[$id] = $module;
+        }
     }
 
     public function bindContext(string $interface, string $implementation, string $consumer): void
@@ -56,9 +62,14 @@ class Registry
         $this->arguments[$class][$paramName] = $value;
     }
 
+    public function setScope(string $class, \PedhotDev\NepotismFree\Contract\Scope $scope): void
+    {
+        $this->scopes[$class] = $scope;
+    }
+
     public function setSingleton(string $class, bool $isSingleton): void
     {
-        $this->singletons[$class] = $isSingleton;
+        $this->setScope($class, $isSingleton ? \PedhotDev\NepotismFree\Contract\Scope::PROCESS : \PedhotDev\NepotismFree\Contract\Scope::PROTOTYPE);
     }
 
     public function getBinding(string $id): string|Closure|null
@@ -79,6 +90,14 @@ class Registry
         return $this->tags[$tag] ?? [];
     }
 
+    /**
+     * @return array<string, string[]>
+     */
+    public function getTagsMap(): array
+    {
+        return $this->tags;
+    }
+
     public function getParameterObject(string $class): ?object
     {
         return $this->parameterObjects[$class] ?? null;
@@ -97,9 +116,15 @@ class Registry
         return isset($this->arguments[$class]) && array_key_exists($paramName, $this->arguments[$class]);
     }
 
+    public function getScope(string $id): \PedhotDev\NepotismFree\Contract\Scope
+    {
+        return $this->scopes[$id] ?? \PedhotDev\NepotismFree\Contract\Scope::PROTOTYPE;
+    }
+
     public function isSingleton(string $id): bool
     {
-        return $this->singletons[$id] ?? false;
+        $scope = $this->getScope($id);
+        return $scope === \PedhotDev\NepotismFree\Contract\Scope::PROCESS || $scope === \PedhotDev\NepotismFree\Contract\Scope::TICK;
     }
 
     /**
@@ -108,6 +133,11 @@ class Registry
     public function getServiceIds(): array
     {
         return array_keys($this->bindings);
+    }
+
+    public function getModule(string $id): ?string
+    {
+        return $this->bindingModules[$id] ?? null;
     }
 
     /**
@@ -119,10 +149,10 @@ class Registry
     }
 
     /**
-     * @return array<string, bool>
+     * @return array<string, \PedhotDev\NepotismFree\Contract\Scope>
      */
-    public function getSingletons(): array
+    public function getScopes(): array
     {
-        return $this->singletons;
+        return $this->scopes;
     }
 }

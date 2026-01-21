@@ -10,6 +10,7 @@ use ReflectionException;
 use ReflectionParameter;
 use ReflectionNamedType;
 use PedhotDev\NepotismFree\Contract\ContainerInterface;
+use PedhotDev\NepotismFree\Contract\Scope;
 use PedhotDev\NepotismFree\Exception\CircularDependencyException;
 use PedhotDev\NepotismFree\Exception\DefinitionException;
 use PedhotDev\NepotismFree\Exception\NotFoundException;
@@ -19,18 +20,23 @@ use PedhotDev\NepotismFree\Exception\NotFoundException;
  */
 class Resolver
 {
-    private array $building = [];
     private array $reflectionCache = [];
 
     public function __construct(
         private Registry $registry,
-        private ContainerInterface $container
+        private ContainerInterface $container,
+        private ResolutionContext $context
     ) {}
 
     public function resolve(string $id): mixed
     {
         // 0. Forbidden: Injection of the Container itself (Service Locator risk)
-        if ($id === Container::class || $id === ContainerInterface::class) {
+        if (
+            $id === Container::class || 
+            $id === ContainerInterface::class || 
+            $id === ScopedContainer::class || 
+            $id === ScopeManager::class
+        ) {
              throw DefinitionException::containerInjectionForbidden();
         }
 
@@ -49,16 +55,18 @@ class Resolver
         $concrete = $binding && is_string($binding) ? $binding : $id;
 
         // Circular dependency check
-        if (isset($this->building[$concrete])) {
-            throw CircularDependencyException::create($concrete, array_keys($this->building));
+        if (isset($this->context->building[$concrete])) {
+            throw CircularDependencyException::create($concrete, array_keys($this->context->building));
         }
 
-        $this->building[$concrete] = true;
+        $this->context->building[$concrete] = true;
+        $this->context->stack[] = $id;
 
         try {
             return $this->build($concrete);
         } finally {
-            unset($this->building[$concrete]);
+            unset($this->context->building[$concrete]);
+            array_pop($this->context->stack);
         }
     }
 
@@ -158,8 +166,20 @@ class Resolver
         // 4. Resolve Class Dependency
         $dependencyId = $type->getName();
 
-        // 5. Check for Contextual Binding (V2 Feature)
-        if ($contextual = $this->registry->getContextualBinding($dependencyId, $class)) {
+        // Scope validation: Wider scope (PROCESS) cannot depend on narrower scope (TICK)
+        if ($this->registry->getScope($class) === Scope::PROCESS && $this->registry->getScope($dependencyId) === Scope::TICK) {
+            throw DefinitionException::unsafeScopeInjection($class, $dependencyId);
+        }
+
+        // 5. Check for Contextual Binding (V2 Feature - Enhanced with Propagation)
+        $contextual = null;
+        foreach (array_reverse($this->context->stack) as $consumer) {
+            if ($contextual = $this->registry->getContextualBinding($dependencyId, $consumer)) {
+                break;
+            }
+        }
+
+        if ($contextual) {
             // Contextual binding can be a concrete class name or a closure
             if ($contextual instanceof Closure) {
                 return $contextual($this->container);
@@ -175,6 +195,11 @@ class Resolver
             }
             throw $e;
         }
+    }
+
+    public function getCurrentConsumer(): ?string
+    {
+        return empty($this->context->stack) ? null : end($this->context->stack);
     }
 
     private function getReflector(string $class): ReflectionClass

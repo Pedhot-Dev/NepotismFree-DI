@@ -12,6 +12,7 @@ use PedhotDev\NepotismFree\Contract\ContainerInterface;
 use PedhotDev\NepotismFree\Contract\ModuleInterface;
 use PedhotDev\NepotismFree\Component\Validation\Validator;
 use PedhotDev\NepotismFree\Component\Compiler\Compiler;
+use PedhotDev\NepotismFree\Contract\Scope;
 use PedhotDev\NepotismFree\Exception\DefinitionException;
 
 use PedhotDev\NepotismFree\Contract\ModuleConfiguratorInterface;
@@ -24,11 +25,12 @@ class ContainerBuilder implements ModuleConfiguratorInterface
     private Registry $registry;
     private ModuleAccessPolicy $accessPolicy;
     private bool $locked = false;
+    private ?string $currentModule = null;
 
     public function __construct()
     {
         $this->registry = new Registry();
-        $this->accessPolicy = new ModuleAccessPolicy();
+        $this->accessPolicy = new ModuleAccessPolicy($this->registry);
     }
 
     /**
@@ -40,7 +42,7 @@ class ContainerBuilder implements ModuleConfiguratorInterface
     public function bind(string $id, string|Closure $implementation): self
     {
         $this->assertNotLocked();
-        $this->registry->bind($id, $implementation);
+        $this->registry->bind($id, $implementation, $this->currentModule);
         return $this;
     }
 
@@ -50,7 +52,7 @@ class ContainerBuilder implements ModuleConfiguratorInterface
     public function singleton(string $id): self
     {
         $this->assertNotLocked();
-        $this->registry->setSingleton($id, true);
+        $this->registry->setScope($id, Scope::PROCESS);
         return $this;
     }
 
@@ -61,7 +63,17 @@ class ContainerBuilder implements ModuleConfiguratorInterface
     public function prototype(string $id): self
     {
         $this->assertNotLocked();
-        $this->registry->setSingleton($id, false);
+        $this->registry->setScope($id, Scope::PROTOTYPE);
+        return $this;
+    }
+
+    /**
+     * Mark a class or interface as Scoped (shared within a Tick/Request).
+     */
+    public function scoped(string $id): self
+    {
+        $this->assertNotLocked();
+        $this->registry->setScope($id, Scope::TICK);
         return $this;
     }
 
@@ -117,10 +129,17 @@ class ContainerBuilder implements ModuleConfiguratorInterface
     {
         $this->assertNotLocked();
         $this->accessPolicy->setEnforcement(true);
-        $module->configure($this);
         
-        foreach ($module->getExposedServices() as $id) {
-            $this->accessPolicy->allowAccess($id);
+        $prevModule = $this->currentModule;
+        $this->currentModule = (new \ReflectionClass($module))->getShortName();
+
+        try {
+            $module->configure($this);
+            foreach ($module->getExposedServices() as $id) {
+                $this->accessPolicy->allowAccess($id);
+            }
+        } finally {
+            $this->currentModule = $prevModule;
         }
         
         return $this;
@@ -142,7 +161,7 @@ class ContainerBuilder implements ModuleConfiguratorInterface
      */
     public function compile(string $path, string $className = 'CompiledContainer'): self
     {
-        $compiler = new Compiler($this->registry);
+        $compiler = new Compiler($this->registry, $this->accessPolicy);
         $compiler->compile($path, $className);
         return $this;
     }
